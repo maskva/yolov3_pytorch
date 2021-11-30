@@ -10,23 +10,50 @@ class VOCDataset(Dataset):
         self.transform = transform
         self.train=train
     def __getitem__(self, index):
+        """ 获取样本
+        Parameters
+        ----------
+        index: int
+            下标
+        Returns
+        -------
+        image: Tensor of shape `(3, H, W)`
+            增强后的图像数据
+        target: `np.ndarray` of shape `(n_objects, 5)`
+            标签数据，第一列为类别标签，剩下四列为边界框坐标 `(cx, cy, w, h)`
+        """
+
+        # 读入图片和标签数据
         line=self.annotations_lines[index].split()
         image = cv.cvtColor(cv.imread(line[0]), cv.COLOR_BGR2RGB)
         target = np.array([np.array(list(map(int, box.split(',')))) for box in line[1:]])
-        boxes,labels=target[:,:4],target[:,4]
+        boxes, labels = target[:, :4], target[:, 4]
+        boxes=Box_Transform(boxes,image.shape[0],image.shape[1])
+
         if self.transform is not None:
             image, boxs, labels = self.transform(image, boxes,labels )
             target = np.hstack((labels[:, np.newaxis], boxes))
-        image = image.astype(np.float32)
-        image /= 255.0
 
+        #H,W,Cto C,H,W
         image=torch.from_numpy(image).permute(2,0,1)
 
         return image,target
 
-
     def __len__(self):
         return len(self.annotations_lines)
+
+def Box_Transform(boxes,h,w):
+    boxes = boxes.astype(np.float)
+    boxes[:,2:] -=boxes[:,:2]
+    boxes[:,:2]+=boxes[:,2:]/2
+
+    boxes[:,[0,2]]/=w
+    boxes[:,[1,3]]/=h
+
+    return  boxes
+
+
+
 
 def collate_fn(batch):
     """ 整理 dataloader 取出的数据
