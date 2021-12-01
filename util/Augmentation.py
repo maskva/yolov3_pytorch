@@ -4,9 +4,7 @@ import cv2
 import numpy as np
 import types
 from numpy import random
-from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
-from imgaug.augmenters.meta import Augmenter
-import imgaug.augmenters as iaa
+
 
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
@@ -134,8 +132,6 @@ class BBoxToPercentCoords(object):
         bbox[:, [0, 2]] /= w
         bbox[:, [1, 3]] /= h
         return image, bbox, label
-
-
 
 
 class Resize(object):
@@ -350,7 +346,6 @@ class Expand(object):
     def __call__(self, image, boxes, labels):
         if random.randint(2):
             return image, boxes, labels
-
         height, width, depth = image.shape
         ratio = random.uniform(1, 4)
         left = random.uniform(0, width*ratio - width)
@@ -366,7 +361,7 @@ class Expand(object):
 
         boxes = boxes.copy()
         boxes[:, :2] += (int(left), int(top))
-        boxes[:, 2:] += (int(left), int(top))
+
 
         return image, boxes, labels
 
@@ -377,7 +372,7 @@ class RandomMirror(object):
         if random.randint(2):
             image = image[:, ::-1]
             boxes = boxes.copy()
-            boxes[:, 0::2] = width - boxes[:, 2::-2]
+            boxes[:, 0] = width - boxes[:, 0]
         return image, boxes, classes
 
 
@@ -432,85 +427,10 @@ class PhotometricDistort(object):
         # return self.rand_light_noise(im, boxes, labels)
 
 
-class ImageAugmenter(object):
-    """ 图像增强器 """
-
-    def __init__(self, augmenter):
-        super().__init__()
-        self.augmenters = augmenter
-
-    def __call__(self, image, bbox, label):
-        """ 对输入的数据进行增强
-        Parameters
-        ----------
-        image: `~np.ndarray` of shape `(H, W, 3)`
-            RGB 图像
-
-        bbox: `~np.ndarray` of shape `(n_objects, 4)`
-            没有归一化的边界框
-
-        label: `~np.ndarray` of shape `(n_objects, )`
-            类别标签
-
-        Returns
-        -------
-        image, bbox, label:
-            增强后的数据
-        """
-        # 转换坐标形式
-        bbox = center_to_corner_numpy(bbox)
-        bounding_boxes = BoundingBoxesOnImage(
-            [BoundingBox(*bbox[i], label=label[i]) for i in range(len(label))],
-            shape=image.shape
-        )
-
-        # 图像增加
-        image, bounding_boxes = self.augmenters(
-            image=image, bounding_boxes=bounding_boxes)
-
-        # 将边界框变回坐标矩阵
-        bounding_boxes.clip_out_of_image_()
-        bbox = corner_to_center_numpy(bounding_boxes.to_xyxy_array())
-        label = np.array([box.label for box in bounding_boxes])
-        return image, bbox, label
-
-class Padding(ImageAugmenter):
-    """ 填充图像为正方形 """
-
-    def __init__(self):
-        augmenter = iaa.Sequential([
-            iaa.PadToAspectRatio(
-                1, position='center-center').to_deterministic()
-        ])
-        super().__init__(augmenter)
-
-class StrongAugmenter(ImageAugmenter):
-    """ 较为猛烈的图像增强器 """
-
-    def __init__(self):
-        sometimes = lambda aug: iaa.Sometimes(0.5, aug)
-        augmenter = iaa.Sequential(
-            [
-                iaa.OneOf([
-                    iaa.GaussianBlur((0, 3.0)),
-                    iaa.AverageBlur(k=(2, 7)),
-                    iaa.MedianBlur(k=(3, 11)),
-                ]),
-                sometimes(iaa.Sharpen(alpha=(0, 0.5), lightness=(0.75, 1.5))),
-                sometimes(iaa.AdditiveGaussianNoise(
-                    loc=0, scale=(0.0, 0.05*255), per_channel=0.5)),
-                sometimes(iaa.Add((-5, 5), per_channel=0.5)),
-                sometimes(iaa.Multiply((0.8, 1.2), per_channel=0.5)),
-                sometimes(iaa.LinearContrast(
-                    (0.5, 2.0), per_channel=0.5)),
-            ],
-            random_order=True
-        ).to_deterministic()
-        super().__init__(augmenter)
-
 class  SSDAugmentation(object):
     """ Yolo 训练时使用的数据集增强器 """
     def __init__(self, size=[416,416], mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)) :
+    #def __init__(self, size=[416, 416], mean=(0, 0, 0), std=(1, 1, 1)):
         """
         Parameters
         ----------
@@ -547,8 +467,8 @@ class YoloAugmentation(object):
         super().__init__()
         self.transformers = Compose([
             BBoxToAbsoluteCoords(),
-            StrongAugmenter(),
-            Padding(),
+            #StrongAugmenter(),
+            #Padding(),
             BBoxToPercentCoords(),
             Resize([image_size, image_size])
         ])
@@ -557,10 +477,9 @@ class YoloAugmentation(object):
         return self.transformers(image, bbox, label)
 
 def Box_Transform(boxes,h,w):
-    boxes = boxes.astype(np.float)
+    boxes = boxes.astype(float)
     boxes[:,2:] -=boxes[:,:2]
     boxes[:,:2]+=boxes[:,2:]/2
-
     boxes[:,[0,2]]/=w
     boxes[:,[1,3]]/=h
 
@@ -574,21 +493,21 @@ if __name__ == '__main__':
     target = np.array([np.array(list(map(int, box.split(',')))) for box in line[1:]])
     boxes, labels = target[:, :4], target[:, 4]
     print(image.shape)
-    print(boxes)
-    print(labels)
+    #print(boxes)
+    #print(labels)
     img_size = 416
     tranform=SSDAugmentation()
     image1=image.copy()
     for box in boxes:
         xmin, ymin, xmax, ymax= box
         image1 = cv2.rectangle(image1, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 0, 255), 2)
-    cv2.imshow('img1', image1)
-    cv2.waitKey(0)
+    #cv2.imshow('img1', image1)
+    #cv2.waitKey(1000)
     boxes=Box_Transform(boxes,image.shape[0],image.shape[1])
-    print(boxes)
+    #print(boxes)
     image, boxes, labels = tranform(image, boxes, labels)
     print(image.shape)
-    print(boxes)
+    #print(boxes)
     #image = image.astype(int)
     print(image)
     image2=image.copy()
